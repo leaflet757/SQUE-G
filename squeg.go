@@ -9,6 +9,7 @@ import (
 	"log"
 	"io/ioutil"
 	"time"
+	"sort"
 	"strings"
 
 	"github.com/zmb3/spotify/v2"
@@ -59,6 +60,10 @@ type PlaylistMetaData struct {
 	ID	  string `json:"id"`
 	Name  string `json:"name"`
 	Limit string `json:"limit"` // TODO: Convert to int
+}
+
+func (p *PlaylistMetaData) Unbounded() bool {
+	return p.Limit == -1
 }
 
 type ConfigData struct {
@@ -375,15 +380,16 @@ func ScanArtistTracks(client *spotify.Client, cache *Cache, config *ConfigData, 
 }
 
 func ScanPlaylistTracks(client *spotify.Client, cache *Cache, config *ConfigData, adder *TrackAdder) {
-	return
 	fmt.Println("Scanning Playlists....")
 	
 	dbgCount := 0
-
+	
 	// TODO: Playlist track sorting
-
+	
 	for playlistMetaIndex, playlistMeta := range(config.Playlists) {
+		var sortedPlaylistTracks []int
 
+		// Check if this playlists PlaylistData exists
 		playlistDataIndex, ok := cache.PlaylistDatasMap[playlistMeta.ID]
 		if !ok {
 			playlistDataIndex = len(cache.PlaylistDatas)
@@ -395,36 +401,31 @@ func ScanPlaylistTracks(client *spotify.Client, cache *Cache, config *ConfigData
 					PlaylistMetaID: playlistMetaIndex,
 			})
 		}
-
 		playlistData := cache.PlaylistDatas[playlistDataIndex]
+		
 		fmt.Printf(">>>%s\n", playlistData.Name)
 
 		playlistTracks, playlistErr := client.GetPlaylistTracks(context.Background(), spotify.ID(playlistMeta.ID), spotify.Limit(SQUE_SPOTIFY_LIMIT_TRACKS), spotify.Market(SQUE_SPOTIFY_MARKET))
 		scanPlaylist := (playlistErr == nil || playlistErr == spotify.ErrNoMorePages)
 
-		//fmt.Printf("why why %d, %s\n", len(playlistTracks.Tracks), playlistErr)
-
 		for len(playlistTracks.Tracks) > 0 && scanPlaylist {
-
 			for _, playlistTrack := range(playlistTracks.Tracks) {
-				
-				//fmt.Printf("%d\n", index)
 
+				// Check the release date of the track
 				trackReleaseDateTime, dateTimeErr := time.Parse(spotify.TimestampLayout, playlistTrack.AddedAt)
-
 				if dateTimeErr != nil {
 					fmt.Printf("Cannot determine date for playlist track %s\n", playlistTrack.Track.Name)
 					continue
 				}
-
-				//fmt.Printf("TrackRelease: %s, LastPlay: %s\n", trackReleaseDateTime.String(), config.Session.LastRunPlaylists.String())
-
+				
+				// Skip track if the song was added previously when we ran this script
 				if trackReleaseDateTime.Before(config.Session.LastRunPlaylists) {
 					continue
 				}
 
+				// Check if the TrackData exists for this track
+				// TODO, should skip if we have the song
 				trackDataIndex, ok := cache.TrackDatasMap[playlistTrack.Track.ID.String()]
-
 				if !ok {
 					trackDataIndex = len(cache.TrackDatas)
 					cache.TrackDatasMap[playlistTrack.Track.ID.String()] = trackDataIndex
@@ -435,18 +436,14 @@ func ScanPlaylistTracks(client *spotify.Client, cache *Cache, config *ConfigData
 							Artist: -1,
 							Album: -1,
 							Playlist: playlistDataIndex,
-							Score: 0,
+							Score: playlistTrack.Track.Popularity,
 							DateTime: trackReleaseDateTime,
 					})
 				}
-
 				playlistData.Tracks = append(playlistData.Tracks, trackDataIndex)
-				trackData := cache.TrackDatas[trackDataIndex]
+				//trackData := cache.TrackDatas[trackDataIndex]
 
-				adder.ListenLater = append(adder.ListenLater, trackDataIndex)
-
-				fmt.Printf("   *%s\n", trackData.Name)
-				//fmt.Printf("%s --- %s --- %s\n", playlistData.Name, trackData.DateTime.String(), trackData.Name)
+				sortedPlaylistTracks = append(sortedPlaylistTracks, trackDataIndex)
 
 				if dbgCount > 10 {
 					return
@@ -460,6 +457,22 @@ func ScanPlaylistTracks(client *spotify.Client, cache *Cache, config *ConfigData
 
 		if playlistErr != nil && playlistErr != spotify.ErrNoMorePages {
 			log.Fatal(playlistErr)
+		}
+
+		sort.SliceStable(sortedPlaylistTracks, func(i, j int) bool {
+			return cache.TrackDatas[i].Score > cache.TrackDatas[j].Score
+		})
+
+		for i := 0; i < len(sortedPlaylistTracks); i++ {
+			if !(playlistMeta.Unbounded() || i < playlistMeta.Limit) {
+				fmt.Printf("!!!Hit limit %d for %s", playlistMeta.Limit, playlistMeta.Name)
+				break
+			}
+			trackDataIndex := sortedPlaylistTracks[i]
+			trackData := cache.TrackDatas[trackDataIndex]
+			fmt.Printf("   *%s\n", trackData.Name)
+			//fmt.Printf("%s --- %s --- %s\n", playlistData.Name, trackData.DateTime.String(), trackData.Name)
+			adder.ListenLater = append(adder.ListenLater, trackDataIndex)
 		}
 	}
 }
