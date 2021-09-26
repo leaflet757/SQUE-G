@@ -2,9 +2,7 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
@@ -21,7 +19,7 @@ var (
 	adder   TrackAdder
 
 	ch       = make(chan *spotify.Client)
-	appState = "abc123"
+	appState = "abc123" // TODO: What should this be?
 )
 
 // ------------------------------
@@ -32,22 +30,20 @@ func main() {
 	// index 2 is lastrun
 	args := os.Args
 
-	// Load json
-	configBytes, configErr := ioutil.ReadFile(args[1])
-    if configErr != nil {
-		fmt.Print("error 1:", configErr)
+	if len(args) < 3 {
+		log.Fatal("Not enough arguments were provided. Exiting early.\nPlease provide the absolute path to user.data and the lastrun files.")
 	}
-	
-    // unmarshall it, copy to object
-    configErr = json.Unmarshal(configBytes, &config)
-    if configErr != nil {
-        fmt.Println("error 2:", configErr)
-    }
 
-	InitConfigData(&config, args[2])
+	// Setup last run and playlist meta data
+	InitConfigData(&config, args[1], args[2])
+
+	// Load Options
+	for i := 1; i < len(args); i++ {
+		CheckOption(&config, args, i)
+	}
 
 	// ClientID, SecretID
-	auth = spotifyauth.New(spotifyauth.WithClientID(config.User.ClientID), spotifyauth.WithClientSecret(config.User.ClientSecret), spotifyauth.WithRedirectURL(config.User.RedirectURI), spotifyauth.WithScopes(spotifyauth.ScopePlaylistModifyPublic, spotifyauth.ScopePlaylistModifyPrivate, spotifyauth.ScopeUserLibraryModify, spotifyauth.ScopeUserFollowRead))
+	auth = spotifyauth.New(spotifyauth.WithClientID(config.User.ClientID), spotifyauth.WithClientSecret(config.User.ClientSecret), spotifyauth.WithRedirectURL(config.User.RedirectURI), spotifyauth.WithScopes(spotifyauth.ScopePlaylistModifyPublic, spotifyauth.ScopePlaylistModifyPrivate, spotifyauth.ScopeUserFollowRead))
 
 	// first start an HTTP server
 	http.HandleFunc("/callback", completeAuth)
@@ -76,9 +72,23 @@ func main() {
 	}
 	fmt.Println("You are logged in as:", spotifyUser.ID)
 
+	// Print Followed Playlists
+	if (config.Session.Flags & SessionFlags_PrintFollowedPlaylists) != 0 {
+		fmt.Println("TOOD: Print Followed Playlists if flag is set")
+		return
+	}
+
 	InitCache(&cache)
-	ScanArtistTracks(client, &cache, &config, &adder)
-	ScanPlaylistTracks(client, &cache, &config, &adder)
+
+	// Scan Artists
+	if (config.Session.Flags & SessionFlags_ScanArtists) != 0 {
+		ScanArtistTracks(client, &cache, &config, &adder)
+	}
+
+	// Scan Playlists
+	if (config.Session.Flags & SessionFlags_ScanPlaylists) != 0 {
+		ScanPlaylistTracks(client, &cache, &config, &adder)
+	}
 
 	fmt.Printf("Adder will add %d listen later\n", len(adder.ListenLater))
 	fmt.Printf("Adder will add %d sets\n", len(adder.Sets))
