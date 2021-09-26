@@ -47,7 +47,7 @@ func main() {
 	InitConfigData(&config, args[2])
 
 	// ClientID, SecretID
-	auth = spotifyauth.New(spotifyauth.WithClientID(config.User.ClientID), spotifyauth.WithClientSecret(config.User.ClientSecret), spotifyauth.WithRedirectURL(config.User.RedirectURI), spotifyauth.WithScopes(spotifyauth.ScopePlaylistModifyPublic), spotifyauth.WithScopes(spotifyauth.ScopeUserFollowRead))
+	auth = spotifyauth.New(spotifyauth.WithClientID(config.User.ClientID), spotifyauth.WithClientSecret(config.User.ClientSecret), spotifyauth.WithRedirectURL(config.User.RedirectURI), spotifyauth.WithScopes(spotifyauth.ScopePlaylistModifyPublic, spotifyauth.ScopePlaylistModifyPrivate, spotifyauth.ScopeUserLibraryModify, spotifyauth.ScopeUserFollowRead))
 
 	// first start an HTTP server
 	http.HandleFunc("/callback", completeAuth)

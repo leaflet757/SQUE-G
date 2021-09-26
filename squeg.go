@@ -13,6 +13,122 @@ import (
 	"github.com/zmb3/spotify/v2"
 )
 
+// ---------------------------------------------------------
+// Constants
+// ---------------------------------------------------------
+
+const SQUE_DATE_FORMAT             = "2006-01-02" // '2006' for YYYY, '01' for MM, '02' for DD, Equivalent to YYYY-MM-DD
+const SQUE_ALERT_STALE_PLAYLIST    = 6 // in months
+
+const SQUE_SPOTIFY_LIMIT_TRACKS    = 20
+const SQUE_SPOTIFY_LIMIT_ARTISTS   = 50
+const SQUE_SPOTIFY_LIMIT_ALBUMS    = 50
+const SQUE_SPOTIFY_LIMIT_PLAYLISTS = 100
+const SQUE_SPOTIFY_MARKET          = "US"
+
+// ---------------------------------------------------------
+// User Meta Data
+// ---------------------------------------------------------
+
+type UserData struct {
+	ClientID 		    string `json:"client_id"`
+	ClientSecret		string `json:"client_secret"`
+	RedirectURI 		string `json:"redirect_uri"`
+	LogsPath			string `json:"logs_path"`
+	PlaylistListenLater string `json:"listen_later"`
+	PlaylistCompilation string `json:"compilation"`
+	PlaylistSets		string `json:"sets"`
+}
+
+type SessionFlags uint8
+const (
+	SessionFlags_ScanPlaylists SessionFlags = 1 << iota
+	SessionFlags_ScanArtists
+)
+
+type SessionData struct {
+	Flags            SessionFlags
+	CurrentDateTime  time.Time
+	LastRunArtists   time.Time
+	LastRunPlaylists time.Time
+}
+
+type PlaylistMetaData struct {
+	ID	  string `json:"id"`
+	Name  string `json:"name"`
+	Limit string `json:"limit"` // TODO: Convert to int
+}
+
+type ConfigData struct {
+	User 	    UserData
+	Session     SessionData
+	Playlists []PlaylistMetaData
+}
+
+// ---------------------------------------------------------
+// Queuer Types
+// ---------------------------------------------------------
+
+type Track struct {
+	URI 	 string
+	Name  	 string
+	Artist   int
+	Album    int
+	Playlist int
+	Score	 int
+	DateTime time.Time
+}
+
+type AlbumType int
+const (
+	AlbumType_Album       AlbumType = iota
+	AlbumType_Compilation
+	AlbumType_Single
+	AlbumType_AppearsOn
+)
+
+type Album struct {
+	ID 			  string
+	Name 	      string
+	Type 	      AlbumType
+	Artist        int
+	ReleaseDate   time.Time
+	Tracks      []int
+}
+
+type Playlist struct {
+	ID 			     string
+	Name             string
+	PlaylistMetaID   int
+	Tracks         []int
+}
+
+type Artist struct {
+	ID       string
+	Name     string
+	Albums []int
+}
+
+type Cache struct {
+	TrackDatas       []Track
+	TrackDatasMap    map[string]int
+
+	AlbumDatas       []Album
+	AlbumDatasMap    map[string]int
+	
+	PlaylistDatas    []Playlist
+	PlaylistDatasMap map[string]int
+	
+	ArtistDatas      []Artist
+	ArtistDatasMap   map[string]int
+}
+
+type TrackAdder struct {
+	ListenLater  []int
+	Sets         []int
+	Compilations []int
+}
+
 func InitCache(c *Cache) {
 	c.TrackDatasMap    = make(map[string]int)
 	c.AlbumDatasMap    = make(map[string]int)
@@ -63,6 +179,8 @@ func parseLastRunFile(path string) (string, string) {
 
 func ScanArtistTracks(client *spotify.Client, cache *Cache, config *ConfigData, adder *TrackAdder) {
 	fmt.Println("Scanning Artists....")
+
+	dbgCount := 0
 
 	albumType := []spotify.AlbumType{spotify.AlbumTypeSingle,spotify.AlbumTypeCompilation}
 
@@ -179,6 +297,11 @@ func ScanArtistTracks(client *spotify.Client, cache *Cache, config *ConfigData, 
 
 							fmt.Printf("  *%s\n", trackData.Name)
 							//fmt.Printf("%s --- %s --- %s --- %s\n", artistData.Name, albumData.Name, albumData.ReleaseDate.String(), trackData.Name)
+
+							if dbgCount > 0 {
+								return
+							}
+							dbgCount++
 						}
 
 						tracksErr = client.NextPage(context.Background(), albumTracks)
@@ -201,10 +324,15 @@ func ScanArtistTracks(client *spotify.Client, cache *Cache, config *ConfigData, 
 }
 
 func ScanPlaylistTracks(client *spotify.Client, cache *Cache, config *ConfigData, adder *TrackAdder) {
+	return
 	fmt.Println("Scanning Playlists....")
 	
+	dbgCount := 0
+
+	// TODO: Playlist track sorting
+
 	for playlistMetaIndex, playlistMeta := range(config.Playlists) {
-		
+
 		playlistDataIndex, ok := cache.PlaylistDatasMap[playlistMeta.ID]
 		if !ok {
 			playlistDataIndex = len(cache.PlaylistDatas)
@@ -268,6 +396,11 @@ func ScanPlaylistTracks(client *spotify.Client, cache *Cache, config *ConfigData
 
 				fmt.Printf("   *%s\n", trackData.Name)
 				//fmt.Printf("%s --- %s --- %s\n", playlistData.Name, trackData.DateTime.String(), trackData.Name)
+
+				if dbgCount > 10 {
+					return
+				}
+				dbgCount++
 			}
 
 			playlistErr = client.NextPage(context.Background(), playlistTracks)
@@ -288,7 +421,6 @@ func AddTracksToPlaylist(client *spotify.Client, cache *Cache, playlistId string
 	}
 
 	spotPlaylistID := spotify.ID(playlistId)
-	trackchunk := make([]spotify.ID, SQUE_SPOTIFY_LIMIT_PLAYLISTS)
 	
 	chunkLength := 0
 	trackIndex := 0
@@ -299,9 +431,19 @@ func AddTracksToPlaylist(client *spotify.Client, cache *Cache, playlistId string
 		if chunkLength > totalTracks {
 			chunkLength = totalTracks
 		}
-
+		
+		// TODO: reuse chunk data
+		trackchunk := make([]spotify.ID, chunkLength)
 		for trackDataID, trackDataIndex := range(tracks[trackIndex:chunkLength]) {
-			trackchunk[trackDataIndex] = spotify.ID(cache.TrackDatas[trackDataID].URI)
+			fmt.Printf("Sending %s\n", cache.TrackDatas[trackDataID].URI)
+
+			trackData := cache.TrackDatas[trackDataID]
+
+			if strings.Contains(trackData.URI, "spotify:track:") {
+				trackchunk[trackDataIndex] = spotify.ID(trackData.URI[len("spotify:track:"):len(trackData.URI)])
+			} else {
+				trackchunk[trackDataIndex] = spotify.ID(trackData.URI)
+			}
 		}
 
 		_, err := client.AddTracksToPlaylist(context.Background(), spotPlaylistID, trackchunk...)

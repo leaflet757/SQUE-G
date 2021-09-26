@@ -1,4 +1,4 @@
-module C/dev/projects/SQUE-G
+module github.com/leaflet757/SQUE-G
 
 go 1.17
 
