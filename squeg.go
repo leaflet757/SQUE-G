@@ -1,5 +1,3 @@
-// https://github.com/zmb3/spotify/blob/master/track.go
-
 package main
 
 import (
@@ -8,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"io/ioutil"
+	"os"
 	"time"
 	"sort"
 	"strings"
@@ -29,14 +28,17 @@ const SQUE_SPOTIFY_LIMIT_PLAYLISTS = 100
 const SQUE_SPOTIFY_MARKET          = "US"
 
 // ---------------------------------------------------------
-// User Meta Data
+// User and Session Data
 // ---------------------------------------------------------
 
 type UserData struct {
+	UserID 			    string
+	UserDataPath        string
 	ClientID 		    string `json:"client_id"`
 	ClientSecret		string `json:"client_secret"`
 	RedirectURI 		string `json:"redirect_uri"`
 	LogsPath			string `json:"logs_path"`
+	LastRunPath			string `json:"last_run_path"`
 	PlaylistListenLater string `json:"listen_later"`
 	PlaylistCompilation string `json:"compilation"`
 	PlaylistSets		string `json:"sets"`
@@ -59,7 +61,7 @@ type SessionData struct {
 type PlaylistMetaData struct {
 	ID	  string `json:"id"`
 	Name  string `json:"name"`
-	Limit string `json:"limit"` // TODO: Convert to int
+	Limit int    `json:"limit"`
 }
 
 func (p *PlaylistMetaData) Unbounded() bool {
@@ -67,9 +69,9 @@ func (p *PlaylistMetaData) Unbounded() bool {
 }
 
 type ConfigData struct {
-	User 	    UserData
-	Session     SessionData
-	Playlists []PlaylistMetaData
+	User 	     UserData
+	Session      SessionData
+	Playlists  []PlaylistMetaData
 }
 
 // ---------------------------------------------------------
@@ -134,8 +136,11 @@ type TrackAdder struct {
 	ListenLater  []int
 	Sets         []int
 	Compilations []int
+	UnPlayable   []int
 }
 
+// ---------------------------------------------------------
+// ---------------------------------------------------------
 func InitCache(c *Cache) {
 	c.TrackDatasMap    = make(map[string]int)
 	c.AlbumDatasMap    = make(map[string]int)
@@ -143,20 +148,24 @@ func InitCache(c *Cache) {
 	c.ArtistDatasMap   = make(map[string]int)
 }
 
-func InitConfigData(c *ConfigData, userDataPath string, lastRunFilePath string) {
+// ---------------------------------------------------------
+// ---------------------------------------------------------
+func InitConfigData(c *ConfigData, userDataPath string) {
 	// Load json
 	configBytes, configErr := ioutil.ReadFile(userDataPath)
 	if configErr != nil {
 		log.Fatalf("Could not load user data path: %s\n", configErr)
 	}
-
+	
 	// unmarshall it, copy to object
 	configErr = json.Unmarshal(configBytes, c)
 	if configErr != nil {
-		log.Fatalf("could not unmarshal config data: %s\n", configErr)
+		log.Fatalf("%s\n", configErr)
 	}
+	
+	c.User.UserDataPath = userDataPath
 
-	lastRunArtists, lastRunPlaylists := parseLastRunFile(lastRunFilePath)
+	lastRunArtists, lastRunPlaylists := parseLastRunFile(c.User.LastRunPath)
 
 	// Artists last run
 	dateTime, timeErr := time.Parse(SQUE_DATE_FORMAT, lastRunArtists)
@@ -179,6 +188,36 @@ func InitConfigData(c *ConfigData, userDataPath string, lastRunFilePath string) 
 	c.Session.CurrentDateTime = time.Now()
 }
 
+// ---------------------------------------------------------
+// ---------------------------------------------------------
+func CloseAndSave(c *ConfigData) {
+    f, err := os.Create(c.User.LastRunPath)
+    if err != nil {
+        log.Fatal(err)
+    }
+
+	defer f.Close()
+
+	// artists must go first
+	if (config.Session.Flags & SessionFlags_ScanArtists) != 0 {
+		f.WriteString(c.Session.CurrentDateTime.Format(SQUE_DATE_FORMAT))
+	} else {
+		f.WriteString(c.Session.LastRunArtists.Format(SQUE_DATE_FORMAT))
+	}
+
+	// delimeter
+	f.WriteString(",")
+
+	// playlists must go second
+	if (config.Session.Flags & SessionFlags_ScanPlaylists) != 0 {
+		f.WriteString(c.Session.CurrentDateTime.Format(SQUE_DATE_FORMAT))
+	} else {
+		f.WriteString(c.Session.LastRunPlaylists.Format(SQUE_DATE_FORMAT))
+	}
+}
+
+// ---------------------------------------------------------
+// ---------------------------------------------------------
 func parseLastRunFile(path string) (string, string) {
 	data, err := ioutil.ReadFile(path)
 	
@@ -193,21 +232,16 @@ func parseLastRunFile(path string) (string, string) {
 	return lastRunArtistsDateStr, lastRunPlaylistsDateStr
 }
 
+// ---------------------------------------------------------
+// ---------------------------------------------------------
 func CheckOption(config *ConfigData, argv []string, index int) {
 	if argv[index] == "-a" { // Scan Artists
-		
 		config.Session.Flags |= SessionFlags_ScanArtists
-
 	} else if argv[index] == "-p" { // Scan Playlists
-		
 		config.Session.Flags |= SessionFlags_ScanPlaylists
-
 	} else if argv[index] == "-fp" { // Print Followed Playlists
-		
 		config.Session.Flags |= SessionFlags_PrintFollowedPlaylists
-
 	} else if argv[index] == "-d" {
-		
 		storeArtist := false
 		storePlaylist := false
 		for i := 1; i < len(argv); i++ {
@@ -235,18 +269,18 @@ func CheckOption(config *ConfigData, argv []string, index int) {
 	}
 }
 
+// ---------------------------------------------------------
+// ---------------------------------------------------------
 func ScanArtistTracks(client *spotify.Client, cache *Cache, config *ConfigData, adder *TrackAdder) {
 	fmt.Println("Scanning Artists....")
 
-	dbgCount := 0
-
 	albumType := []spotify.AlbumType{spotify.AlbumTypeAlbum, spotify.AlbumTypeSingle, spotify.AlbumTypeCompilation/*, spotify.AlbumTypeAppearsOn*/} // we dont care about 'AppearsOn'
-
+	
 	// Followed Artists
 	artists, artistErr := client.CurrentUsersFollowedArtists(context.Background(), spotify.Limit(SQUE_SPOTIFY_LIMIT_ARTISTS))
 	
 	continueScanning := (artistErr == nil)
-
+	
 	for len(artists.Artists) > 0 && continueScanning {
 		fmt.Println("Artist Limit:", artists.Limit)
 		fmt.Println("Number of artists:", len(artists.Artists))
@@ -264,6 +298,8 @@ func ScanArtistTracks(client *spotify.Client, cache *Cache, config *ConfigData, 
 						Name: artist.Name,
 				})
 			}
+			
+			var simpleTracksToAdd []int
 			artistData := cache.ArtistDatas[artistDataIndex]
 			fmt.Printf(">>>%s\n", artistData.Name)
 
@@ -348,19 +384,8 @@ func ScanArtistTracks(client *spotify.Client, cache *Cache, config *ConfigData, 
 							})
 							albumData.Tracks = append(albumData.Tracks, trackDataIndex)
 							
-							// Add the track to the listen later playlist
-							adder.ListenLater = append(adder.ListenLater, trackDataIndex)
-							
-							trackData := cache.TrackDatas[trackDataIndex]
-							fmt.Printf("  *%s\n", trackData.Name)
-
-							// TODO: Logger
-							//fmt.Printf("%s --- %s --- %s --- %s\n", artistData.Name, albumData.Name, albumData.ReleaseDate.String(), trackData.Name)
-
-							if dbgCount > 0 {
-								return
-							}
-							dbgCount++
+							// Add the simple track so we can query the full track later.
+							simpleTracksToAdd = append(simpleTracksToAdd, trackDataIndex)
 						}
 
 						tracksErr = client.NextPage(context.Background(), albumTracks)
@@ -368,7 +393,74 @@ func ScanArtistTracks(client *spotify.Client, cache *Cache, config *ConfigData, 
 				}
 				albumsErr = client.NextPage(context.Background(), artistAlbums)
 			}
+			
+			// Artists will release music under different licenses that may or may not
+			// allow returned songs from the spotify api to be playable by the current
+			// user. So we need to pull data of the full track to see if its playable
+			toAddIndex := 0
+			totalTracks := len(simpleTracksToAdd)
+
+			for toAddIndex < totalTracks {
+				chunkLen := SQUE_SPOTIFY_LIMIT_ARTISTS
+				
+				if (toAddIndex + chunkLen) > totalTracks {
+					chunkLen = totalTracks - toAddIndex
+				}
+
+				trackChunk := make([]spotify.ID, chunkLen)
+				subtracks := simpleTracksToAdd[toAddIndex:toAddIndex+chunkLen]
+		
+				// Create the spotify ids for all the possible tracks
+				for trackDataIndex, trackDataID := range(subtracks) {
+					trackData := cache.TrackDatas[trackDataID]
+		
+					if strings.Contains(trackData.URI, "spotify:track:") {
+						trackChunk[trackDataIndex] = spotify.ID(trackData.URI[len("spotify:track:"):len(trackData.URI)])
+					} else {
+						trackChunk[trackDataIndex] = spotify.ID(trackData.URI)
+					}
+				}
+
+				// Get the full track
+				fullTracks, fullTrackErr := client.GetTracks(context.Background(), trackChunk, spotify.Market(SQUE_SPOTIFY_MARKET))
+				
+				if fullTrackErr != nil {
+					log.Fatal(fullTrackErr)
+				}
+
+				for _, track := range(fullTracks) {
+					// Key to data map must exist if we got here
+					trackDataIndex, _ := cache.TrackDatasMap[track.ID.String()]
+
+					trackData := cache.TrackDatas[trackDataIndex]
+					albumData := cache.AlbumDatas[trackData.Album]
+					artistData := cache.ArtistDatas[trackData.Artist]
+
+					// Not that it matters, we want the song anyway... but grab the score
+					trackData.Score = track.Popularity
+
+					if *track.IsPlayable {
+						// The track is playable and can be added
+						if track.Duration >= 1860000 {
+							adder.Sets = append(adder.Sets, trackDataIndex)
+						} else {
+							adder.ListenLater = append(adder.ListenLater, trackDataIndex)
+						}
+						fmt.Printf("  *%s\n", trackData.Name)
+						logger.ArtistMessages = append(logger.ArtistMessages, fmt.Sprintf("%s --- %s --- %s --- %s --- %d --- %v\n", artistData.Name, albumData.Name, albumData.ReleaseDate.String(), trackData.Name, trackData.Score, track.AvailableMarkets))
+					} else {
+						// The track is unplayable for some reason
+						adder.UnPlayable = append(adder.UnPlayable, trackDataIndex)
+						logger.UnPlayableMessages = append(logger.UnPlayableMessages, fmt.Sprintf("%s --- %s --- %s --- %s --- %d --- %v\n", artistData.Name, albumData.Name, albumData.ReleaseDate.String(), trackData.Name, trackData.Score, track.AvailableMarkets))
+					}
+				}
+
+				// chunk scan complete
+				toAddIndex += chunkLen
+			}
 		}
+
+		// artist page complete
 		fmt.Println("Cursor After:", artists.Cursor.After)
 		if len(artists.Cursor.After) > 0 {
 			artists, artistErr = client.CurrentUsersFollowedArtists(context.Background(), spotify.Limit(SQUE_SPOTIFY_LIMIT_ARTISTS), spotify.After(artists.Cursor.After) )
@@ -381,11 +473,7 @@ func ScanArtistTracks(client *spotify.Client, cache *Cache, config *ConfigData, 
 
 func ScanPlaylistTracks(client *spotify.Client, cache *Cache, config *ConfigData, adder *TrackAdder) {
 	fmt.Println("Scanning Playlists....")
-	
-	dbgCount := 0
-	
-	// TODO: Playlist track sorting
-	
+		
 	for playlistMetaIndex, playlistMeta := range(config.Playlists) {
 		var sortedPlaylistTracks []int
 
@@ -424,8 +512,8 @@ func ScanPlaylistTracks(client *spotify.Client, cache *Cache, config *ConfigData
 				}
 
 				// Check if the TrackData exists for this track
-				// TODO, should skip if we have the song
 				trackDataIndex, ok := cache.TrackDatasMap[playlistTrack.Track.ID.String()]
+
 				if !ok {
 					trackDataIndex = len(cache.TrackDatas)
 					cache.TrackDatasMap[playlistTrack.Track.ID.String()] = trackDataIndex
@@ -440,15 +528,10 @@ func ScanPlaylistTracks(client *spotify.Client, cache *Cache, config *ConfigData
 							DateTime: trackReleaseDateTime,
 					})
 				}
+
 				playlistData.Tracks = append(playlistData.Tracks, trackDataIndex)
-				//trackData := cache.TrackDatas[trackDataIndex]
 
 				sortedPlaylistTracks = append(sortedPlaylistTracks, trackDataIndex)
-
-				if dbgCount > 10 {
-					return
-				}
-				dbgCount++
 			}
 
 			playlistErr = client.NextPage(context.Background(), playlistTracks)
@@ -459,19 +542,25 @@ func ScanPlaylistTracks(client *spotify.Client, cache *Cache, config *ConfigData
 			log.Fatal(playlistErr)
 		}
 
+		// Sort the possible tracks to add from this playlist by their popularity.
+		// Prefer the more popular songs
 		sort.SliceStable(sortedPlaylistTracks, func(i, j int) bool {
 			return cache.TrackDatas[i].Score > cache.TrackDatas[j].Score
 		})
 
+		// Add some number of songs from this playlists as defined by the user's user data
 		for i := 0; i < len(sortedPlaylistTracks); i++ {
 			if !(playlistMeta.Unbounded() || i < playlistMeta.Limit) {
-				fmt.Printf("!!!Hit limit %d for %s", playlistMeta.Limit, playlistMeta.Name)
+				fmt.Printf("!!!Hit limit %d for %s\n", playlistMeta.Limit, playlistMeta.Name)
 				break
 			}
+
 			trackDataIndex := sortedPlaylistTracks[i]
 			trackData := cache.TrackDatas[trackDataIndex]
-			fmt.Printf("   *%s\n", trackData.Name)
-			//fmt.Printf("%s --- %s --- %s\n", playlistData.Name, trackData.DateTime.String(), trackData.Name)
+			fmt.Printf("  *%s\n", trackData.Name)
+
+			logger.PlaylistMessages = append(logger.PlaylistMessages, fmt.Sprintf("%s --- %s --- %s --- %d\n", playlistData.Name, trackData.DateTime, trackData.Name, trackData.Score))
+
 			adder.ListenLater = append(adder.ListenLater, trackDataIndex)
 		}
 	}
@@ -486,21 +575,19 @@ func AddTracksToPlaylist(client *spotify.Client, cache *Cache, playlistId string
 
 	spotPlaylistID := spotify.ID(playlistId)
 	
-	chunkLength := 0
 	trackIndex := 0
 	
 	for trackIndex < totalTracks {
-		chunkLength += SQUE_SPOTIFY_LIMIT_PLAYLISTS
+		chunkLength := SQUE_SPOTIFY_LIMIT_PLAYLISTS
 		
-		if chunkLength > totalTracks {
-			chunkLength = totalTracks
+		if (trackIndex + chunkLength) > totalTracks {
+			chunkLength = totalTracks - trackIndex
 		}
-		
-		// TODO: reuse chunk data
+				
 		trackchunk := make([]spotify.ID, chunkLength)
-		for trackDataID, trackDataIndex := range(tracks[trackIndex:chunkLength]) {
-			fmt.Printf("Sending %s\n", cache.TrackDatas[trackDataID].URI)
+		subtracks := tracks[trackIndex:trackIndex+chunkLength]
 
+		for trackDataIndex, trackDataID := range(subtracks) {
 			trackData := cache.TrackDatas[trackDataID]
 
 			if strings.Contains(trackData.URI, "spotify:track:") {
@@ -517,4 +604,26 @@ func AddTracksToPlaylist(client *spotify.Client, cache *Cache, playlistId string
 
 		trackIndex += chunkLength	
 	}
+}
+
+func ShowFollowedPlaylists(client *spotify.Client, config *ConfigData) {
+	playlistPage, err := client.GetPlaylistsForUser(context.Background(), config.User.UserID)
+
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	scanPlaylist := true
+
+	for len(playlistPage.Playlists) > 0 && scanPlaylist {
+
+		for i := 0; i < len(playlistPage.Playlists); i++ {
+			playlist := playlistPage.Playlists[i]
+			fmt.Printf("%s -- %s\n", playlist.ID, playlist.Name)
+		}
+
+		playlistErr := client.NextPage(context.Background(), playlistPage)
+		scanPlaylist = playlistErr == nil
+	}
+
 }

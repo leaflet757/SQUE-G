@@ -17,25 +17,25 @@ var (
 	config  ConfigData
 	cache   Cache
 	adder   TrackAdder
+	logger  Logger
 
 	ch       = make(chan *spotify.Client)
 	appState = "abc123" // TODO: What should this be?
 )
 
-// ------------------------------
-// Main
+// ---------------------------------------------------------
+// ---------------------------------------------------------
 func main() {
 	// index 0 is program name
 	// index 1 is user.data
-	// index 2 is lastrun
 	args := os.Args
 
-	if len(args) < 3 {
-		log.Fatal("Not enough arguments were provided. Exiting early.\nPlease provide the absolute path to user.data and the lastrun files.")
+	if len(args) < 2 {
+		log.Fatal("Not enough arguments were provided. Exiting early.\nPlease provide the absolute path to user.data.")
 	}
 
 	// Setup last run and playlist meta data
-	InitConfigData(&config, args[1], args[2])
+	InitConfigData(&config, args[1])
 
 	// Load Options
 	for i := 1; i < len(args); i++ {
@@ -43,7 +43,10 @@ func main() {
 	}
 
 	// ClientID, SecretID
-	auth = spotifyauth.New(spotifyauth.WithClientID(config.User.ClientID), spotifyauth.WithClientSecret(config.User.ClientSecret), spotifyauth.WithRedirectURL(config.User.RedirectURI), spotifyauth.WithScopes(spotifyauth.ScopePlaylistModifyPublic, spotifyauth.ScopePlaylistModifyPrivate, spotifyauth.ScopeUserFollowRead))
+	auth = spotifyauth.New(spotifyauth.WithClientID(config.User.ClientID), 
+						   spotifyauth.WithClientSecret(config.User.ClientSecret),
+						   spotifyauth.WithRedirectURL(config.User.RedirectURI), 
+						   spotifyauth.WithScopes(spotifyauth.ScopePlaylistModifyPublic, spotifyauth.ScopePlaylistModifyPrivate, spotifyauth.ScopePlaylistReadPrivate, spotifyauth.ScopeUserFollowRead))
 
 	// first start an HTTP server
 	http.HandleFunc("/callback", completeAuth)
@@ -63,22 +66,31 @@ func main() {
 	// wait for auth to complete
 	client := <-ch
 
-	connectedStartTime := time.Now()
-
+	
 	// use the client to make calls that require authorization
 	spotifyUser, userErr := client.CurrentUser(context.Background())
 	if userErr != nil {
 		log.Fatal(userErr)
 	}
+	
+	// assign user ID
+	config.User.UserID = spotifyUser.ID
+	
 	fmt.Println("You are logged in as:", spotifyUser.ID)
-
+	
 	// Print Followed Playlists
 	if (config.Session.Flags & SessionFlags_PrintFollowedPlaylists) != 0 {
-		fmt.Println("TOOD: Print Followed Playlists if flag is set")
+		fmt.Println("----------------------------------------------")
+		fmt.Println("Displaying followed playlists, exitting early.")
+		fmt.Println("----------------------------------------------")
+		ShowFollowedPlaylists(client, &config)
 		return
 	}
-
+	
 	InitCache(&cache)
+
+	// Start Clock
+	connectedStartTime := time.Now()
 
 	// Scan Artists
 	if (config.Session.Flags & SessionFlags_ScanArtists) != 0 {
@@ -94,6 +106,7 @@ func main() {
 	fmt.Printf("Adder will add %d sets\n", len(adder.Sets))
 	fmt.Printf("Adder will add %d Compilations\n", len(adder.Compilations))
 	
+	// Add songs to playlists
 	if len(adder.ListenLater) > 0 {
 		AddTracksToPlaylist(client, &cache, config.User.PlaylistListenLater, adder.ListenLater)
 	}
@@ -106,10 +119,19 @@ func main() {
 		AddTracksToPlaylist(client, &cache, config.User.PlaylistCompilation, adder.Compilations)
 	}
 
+	// Print Logs
+	if len(logger.ArtistMessages) > 0 || len(logger.PlaylistMessages) > 0 {
+		WriteLogs(&logger, &config)
+	}
+
+	CloseAndSave(&config)
+
 	elapsedtime := time.Since(connectedStartTime)
-	fmt.Printf("Elapsed time to perform scan: %s", elapsedtime)
+	fmt.Printf("Done! Elapsed time to perform scan: %s", elapsedtime)
 }
 
+// ---------------------------------------------------------
+// ---------------------------------------------------------
 func completeAuth(w http.ResponseWriter, r *http.Request) {
 	tok, err := auth.Token(r.Context(), appState, r)
 	if err != nil {
