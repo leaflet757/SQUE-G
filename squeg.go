@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -19,7 +20,7 @@ import (
 // ---------------------------------------------------------
 
 const SQUE_DATE_FORMAT             = "2006-01-02" // '2006' for YYYY, '01' for MM, '02' for DD, Equivalent to YYYY-MM-DD
-const SQUE_ALERT_STALE_PLAYLIST    = 6 // in months
+const SQUE_ALERT_STALE_PLAYLIST    = 4800 // in hours, 200 days
 
 const SQUE_SPOTIFY_LIMIT_TRACKS    = 20
 const SQUE_SPOTIFY_LIMIT_ARTISTS   = 50
@@ -39,6 +40,7 @@ type UserData struct {
 	RedirectURI 		string `json:"redirect_uri"`
 	LogsPath			string `json:"logs_path"`
 	LastRunPath			string `json:"last_run_path"`
+	PlaylistMetaPath    string `json:"playlist_meta_path"`
 	PlaylistListenLater string `json:"listen_later"`
 	PlaylistCompilation string `json:"compilation"`
 	PlaylistSets		string `json:"sets"`
@@ -109,6 +111,7 @@ type Playlist struct {
 	ID 			     string
 	Name             string
 	PlaylistMetaID   int
+	LastUpdated		 time.Time
 	Tracks         []int
 }
 
@@ -265,6 +268,101 @@ func CheckOption(config *ConfigData, argv []string, index int) {
 		if storePlaylist {
 			fmt.Printf("Overwriting last run playlist date %s. Writing new playlist date %s.", config.Session.LastRunPlaylists, dateTime)
 			config.Session.LastRunPlaylists = dateTime
+		}
+	}
+}
+
+// ---------------------------------------------------------
+// ---------------------------------------------------------
+func initPlaylistDates(c *ConfigData) {
+	if len(c.User.PlaylistMetaPath) > 0 {
+		f, err := os.Open(c.User.PlaylistMetaPath)
+		if err != nil {
+			return
+		}
+
+		scanner := bufio.NewScanner(f)
+		scanner.Split(bufio.ScanLines)
+				
+		for scanner.Scan() {
+			idAndDate := strings.Split(scanner.Text(), ",")
+
+			playlistDataIndex, ok := cache.PlaylistDatasMap[idAndDate[0]]
+			if !ok {
+				log.Fatal("Playlist should exist in map")
+			}
+			
+			playlistData := cache.PlaylistDatas[playlistDataIndex]
+			date, dateErr := time.Parse(time.UnixDate, idAndDate[1])
+
+			if dateErr != nil {
+				log.Fatal(dateErr)
+			}
+
+			playlistData.LastUpdated = date
+		}
+
+		f.Close()
+	}
+}
+
+// ---------------------------------------------------------
+// ---------------------------------------------------------
+func AlertStalePlaylistsAndSavePlaylistUpdates(c *ConfigData, cache *Cache) {
+	initPlaylistDates(c)
+
+	staleCount := 0
+	now := time.Now()
+
+	fmt.Println("Checking for stale playlists.")
+
+	for _, playlistMeta := range(config.Playlists) {
+		// Check if this playlists PlaylistData exists
+		playlistDataIndex, ok := cache.PlaylistDatasMap[playlistMeta.ID]
+		if !ok {
+			log.Fatal("Playlist should exist in map")
+		}
+
+		playlistData := &cache.PlaylistDatas[playlistDataIndex]
+
+		mostRecentSongTime := time.Date(2006, time.November, 1, 1, 0, 0, 0, time.UTC)
+
+		for _, trackDataIndex := range(playlistData.Tracks) {
+			trackData := cache.TrackDatas[trackDataIndex]
+
+			if trackData.DateTime.After(mostRecentSongTime) {
+				mostRecentSongTime = trackData.DateTime
+			}
+		}
+
+		playlistData.LastUpdated = mostRecentSongTime
+
+		elapsedTime := now.Sub(playlistData.LastUpdated)
+		if elapsedTime.Hours() >= SQUE_ALERT_STALE_PLAYLIST {
+			fmt.Printf("[%s] %s\n", playlistData.LastUpdated.Format(SQUE_DATE_FORMAT), playlistData.Name)
+			staleCount++
+		}
+	}
+
+	fmt.Printf("Found %d possible stale playlists.\n", staleCount)
+
+	if len(c.User.PlaylistMetaPath) > 0 {
+		f, err := os.Create(c.User.PlaylistMetaPath)
+		if err != nil {
+			log.Fatal(err)
+		}
+		
+		defer f.Close()
+		
+		for _, playlistMeta := range(config.Playlists) {
+			playlistDataIndex, ok := cache.PlaylistDatasMap[playlistMeta.ID]
+			if !ok {
+				log.Fatal("Playlist should exist in map")
+			}
+			
+			playlistData := cache.PlaylistDatas[playlistDataIndex]
+			
+			f.WriteString(fmt.Sprintf("%s,%s\n", playlistData.ID, playlistData.LastUpdated.Format(time.UnixDate)))
 		}
 	}
 }
@@ -471,6 +569,8 @@ func ScanArtistTracks(client *spotify.Client, cache *Cache, config *ConfigData, 
 	}
 }
 
+// ---------------------------------------------------------
+// ---------------------------------------------------------
 func ScanPlaylistTracks(client *spotify.Client, cache *Cache, config *ConfigData, adder *TrackAdder) {
 	fmt.Println("Scanning Playlists....")
 		
@@ -489,7 +589,7 @@ func ScanPlaylistTracks(client *spotify.Client, cache *Cache, config *ConfigData
 					PlaylistMetaID: playlistMetaIndex,
 			})
 		}
-		playlistData := cache.PlaylistDatas[playlistDataIndex]
+		playlistData := &cache.PlaylistDatas[playlistDataIndex]
 		
 		fmt.Printf(">>>%s\n", playlistData.Name)
 
@@ -566,6 +666,8 @@ func ScanPlaylistTracks(client *spotify.Client, cache *Cache, config *ConfigData
 	}
 }
 
+// ---------------------------------------------------------
+// ---------------------------------------------------------
 func AddTracksToPlaylist(client *spotify.Client, cache *Cache, playlistId string, tracks []int) {
 	totalTracks := len(tracks)
 
@@ -606,6 +708,8 @@ func AddTracksToPlaylist(client *spotify.Client, cache *Cache, playlistId string
 	}
 }
 
+// ---------------------------------------------------------
+// ---------------------------------------------------------
 func ShowFollowedPlaylists(client *spotify.Client, config *ConfigData) {
 	playlistPage, err := client.GetPlaylistsForUser(context.Background(), config.User.UserID)
 
@@ -625,5 +729,4 @@ func ShowFollowedPlaylists(client *spotify.Client, config *ConfigData) {
 		playlistErr := client.NextPage(context.Background(), playlistPage)
 		scanPlaylist = playlistErr == nil
 	}
-
 }

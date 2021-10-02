@@ -54,9 +54,6 @@ year-month-day,year-month-day
 ```
 
 ## TODO
-- display stale playlists
-- Server Error 500
 - check for track dups, uri check done - wat else?
-- Playlists should check against timestamp
 - clean up this shitty code
 - Add a queuer for followed podcasts

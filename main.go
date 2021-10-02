@@ -124,6 +124,10 @@ func main() {
 		WriteLogs(&logger, &config)
 	}
 
+	if (config.Session.Flags & SessionFlags_ScanPlaylists) != 0 {
+		AlertStalePlaylistsAndSavePlaylistUpdates(&config, &cache)
+	}
+
 	CloseAndSave(&config)
 
 	elapsedtime := time.Since(connectedStartTime)
