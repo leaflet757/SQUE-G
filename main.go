@@ -108,15 +108,15 @@ func main() {
 	
 	// Add songs to playlists
 	if len(adder.ListenLater) > 0 {
-		AddTracksToPlaylist(client, &cache, config.User.PlaylistListenLater, adder.ListenLater)
+		AddTracksToPlaylist(client, &cache, config.User.PlaylistListenLater, adder.ListenLater, true)
 	}
 
 	if len(adder.Sets) > 0 {
-		AddTracksToPlaylist(client, &cache, config.User.PlaylistSets, adder.Sets)
+		AddTracksToPlaylist(client, &cache, config.User.PlaylistSets, adder.Sets, false)
 	}
 
 	if len(adder.Compilations) > 0 {
-		AddTracksToPlaylist(client, &cache, config.User.PlaylistCompilation, adder.Compilations)
+		AddTracksToPlaylist(client, &cache, config.User.PlaylistCompilation, adder.Compilations, false)
 	}
 
 	// Print Logs

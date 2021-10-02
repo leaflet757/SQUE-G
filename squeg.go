@@ -8,6 +8,7 @@ import (
 	"log"
 	"io/ioutil"
 	"os"
+	"math/rand"
 	"time"
 	"sort"
 	"strings"
@@ -668,7 +669,14 @@ func ScanPlaylistTracks(client *spotify.Client, cache *Cache, config *ConfigData
 
 // ---------------------------------------------------------
 // ---------------------------------------------------------
-func AddTracksToPlaylist(client *spotify.Client, cache *Cache, playlistId string, tracks []int) {
+func AddTracksToPlaylist(client *spotify.Client, cache *Cache, playlistId string, tracks []int, shuffle bool) {
+	if shuffle {
+		for i := range tracks {
+			j := rand.Intn(i + 1)
+			tracks[i], tracks[j] = tracks[j], tracks[i]
+		}
+	}
+	
 	totalTracks := len(tracks)
 
 	if totalTracks == 0 {
