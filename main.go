@@ -65,7 +65,6 @@ func main() {
 
 	// wait for auth to complete
 	client := <-ch
-
 	
 	// use the client to make calls that require authorization
 	spotifyUser, userErr := client.CurrentUser(context.Background())
@@ -102,10 +101,12 @@ func main() {
 		ScanPlaylistTracks(client, &cache, &config, &adder)
 	}
 
+	fmt.Println("----------------------------------------------")
 	fmt.Printf("Adder will add %d listen later\n", len(adder.ListenLater))
 	fmt.Printf("Adder will add %d sets\n", len(adder.Sets))
 	fmt.Printf("Adder will add %d Compilations\n", len(adder.Compilations))
-	
+	fmt.Println("----------------------------------------------")
+
 	// Add songs to playlists
 	if len(adder.ListenLater) > 0 {
 		AddTracksToPlaylist(client, &cache, config.User.PlaylistListenLater, adder.ListenLater, true)
@@ -131,7 +132,12 @@ func main() {
 	CloseAndSave(&config)
 
 	elapsedtime := time.Since(connectedStartTime)
-	fmt.Printf("Done! Elapsed time to perform scan: %s", elapsedtime)
+	fmt.Println("----------------------------------------------")
+	fmt.Printf("Done! Elapsed time to perform scan: %s.", elapsedtime)
+
+	if len(logger.UnPlayableMessages) > 0 {
+		fmt.Printf("\nCompleted with %d errors.", len(logger.UnPlayableMessages))
+	}
 }
 
 // ---------------------------------------------------------

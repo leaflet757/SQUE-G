@@ -370,6 +370,28 @@ func AlertStalePlaylistsAndSavePlaylistUpdates(c *ConfigData, cache *Cache) {
 
 // ---------------------------------------------------------
 // ---------------------------------------------------------
+func ParseRawURI(uri *string, outUri *string) bool {
+	if strings.Contains(*uri, "spotify:track:") {
+		substr := (*uri)[len("spotify:track:"):len(*uri)]
+		if len(substr) == 22 {
+			*outUri = substr
+		} else {
+			fmt.Printf("BAD SUBSTR TRACK ID [%s]\n", *uri)
+			return false
+		}
+	} else {
+		if len(*uri) == 22 {
+			*outUri = *uri
+		} else {
+			fmt.Printf("BAD TRACK ID [%s]\n", *uri)
+			return false
+		}
+	}
+	return true
+}
+
+// ---------------------------------------------------------
+// ---------------------------------------------------------
 func ScanArtistTracks(client *spotify.Client, cache *Cache, config *ConfigData, adder *TrackAdder) {
 	fmt.Println("Scanning Artists....")
 
@@ -699,17 +721,34 @@ func AddTracksToPlaylist(client *spotify.Client, cache *Cache, playlistId string
 
 		for trackDataIndex, trackDataID := range(subtracks) {
 			trackData := cache.TrackDatas[trackDataID]
-
-			if strings.Contains(trackData.URI, "spotify:track:") {
-				trackchunk[trackDataIndex] = spotify.ID(trackData.URI[len("spotify:track:"):len(trackData.URI)])
-			} else {
-				trackchunk[trackDataIndex] = spotify.ID(trackData.URI)
+			var spotId string
+			if (ParseRawURI(&trackData.URI, &spotId)) {
+				trackchunk[trackDataIndex] = spotify.ID(spotId)
 			}
+
+			/*if strings.Contains(trackData.URI, "spotify:track:") {
+				spotId := spotify.ID(trackData.URI[len("spotify:track:"):len(trackData.URI)])
+				if len(spotId.String()) == 22 {
+					trackchunk[trackDataIndex] = spotId 
+				} else {
+					fmt.Printf("TODO: BAD SUBSTR TRACK ID [%s]\n", spotId.String())
+				}
+			} else {
+				spotId := spotify.ID(trackData.URI)
+				if len(spotId.String()) == 22 {
+					trackchunk[trackDataIndex] = spotId 
+				} else {
+					fmt.Printf("TODO: BAD TRACK ID [%s]\n", spotId.String())
+				}
+			}*/
 		}
 
 		_, err := client.AddTracksToPlaylist(context.Background(), spotPlaylistID, trackchunk...)
 		if err != nil {
-			log.Fatal(err)
+			fmt.Println(err)
+			for tdi, tdid := range(trackchunk) {
+				fmt.Printf("Index %d, ID %s\n", tdi, tdid.String())
+			}
 		}
 
 		trackIndex += chunkLength	
