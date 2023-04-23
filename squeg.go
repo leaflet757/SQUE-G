@@ -5,13 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"io/ioutil"
-	"os"
+	"log"
 	"math/rand"
-	"time"
+	"os"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/zmb3/spotify/v2"
 )
@@ -20,34 +20,35 @@ import (
 // Constants
 // ---------------------------------------------------------
 
-const SQUE_DATE_FORMAT             = "2006-01-02" // '2006' for YYYY, '01' for MM, '02' for DD, Equivalent to YYYY-MM-DD
-const SQUE_ALERT_STALE_PLAYLIST    = 4800 // in hours, 200 days
+const SQUE_DATE_FORMAT = "2006-01-02"  // '2006' for YYYY, '01' for MM, '02' for DD, Equivalent to YYYY-MM-DD
+const SQUE_ALERT_STALE_PLAYLIST = 4800 // in hours, 200 days
 
-const SQUE_SPOTIFY_LIMIT_TRACKS    = 20
-const SQUE_SPOTIFY_LIMIT_ARTISTS   = 50
-const SQUE_SPOTIFY_LIMIT_ALBUMS    = 50
+const SQUE_SPOTIFY_LIMIT_TRACKS = 20
+const SQUE_SPOTIFY_LIMIT_ARTISTS = 50
+const SQUE_SPOTIFY_LIMIT_ALBUMS = 50
 const SQUE_SPOTIFY_LIMIT_PLAYLISTS = 100
-const SQUE_SPOTIFY_MARKET          = "US"
+const SQUE_SPOTIFY_MARKET = "US"
 
 // ---------------------------------------------------------
 // User and Session Data
 // ---------------------------------------------------------
 
 type UserData struct {
-	UserID 			    string
+	UserID              string
 	UserDataPath        string
-	ClientID 		    string `json:"client_id"`
-	ClientSecret		string `json:"client_secret"`
-	RedirectURI 		string `json:"redirect_uri"`
-	LogsPath			string `json:"logs_path"`
-	LastRunPath			string `json:"last_run_path"`
+	ClientID            string `json:"client_id"`
+	ClientSecret        string `json:"client_secret"`
+	RedirectURI         string `json:"redirect_uri"`
+	LogsPath            string `json:"logs_path"`
+	LastRunPath         string `json:"last_run_path"`
 	PlaylistMetaPath    string `json:"playlist_meta_path"`
 	PlaylistListenLater string `json:"listen_later"`
 	PlaylistCompilation string `json:"compilation"`
-	PlaylistSets		string `json:"sets"`
+	PlaylistSets        string `json:"sets"`
 }
 
 type SessionFlags uint8
+
 const (
 	SessionFlags_ScanPlaylists SessionFlags = 1 << iota
 	SessionFlags_ScanArtists
@@ -62,7 +63,7 @@ type SessionData struct {
 }
 
 type PlaylistMetaData struct {
-	ID	  string `json:"id"`
+	ID    string `json:"id"`
 	Name  string `json:"name"`
 	Limit int    `json:"limit"`
 }
@@ -72,9 +73,9 @@ func (p *PlaylistMetaData) Unbounded() bool {
 }
 
 type ConfigData struct {
-	User 	     UserData
-	Session      SessionData
-	Playlists  []PlaylistMetaData
+	User      UserData
+	Session   SessionData
+	Playlists []PlaylistMetaData
 }
 
 // ---------------------------------------------------------
@@ -82,58 +83,59 @@ type ConfigData struct {
 // ---------------------------------------------------------
 
 type Track struct {
-	URI 	 string
-	Name  	 string
+	URI      string
+	Name     string
 	Artist   int
 	Album    int
 	Playlist int
-	Score	 int
+	Score    int
 	DateTime time.Time
 }
 
 type AlbumType int
+
 const (
-	AlbumType_Album       AlbumType = iota
+	AlbumType_Album AlbumType = iota
 	AlbumType_Compilation
 	AlbumType_Single
 	AlbumType_AppearsOn
 )
 
 type Album struct {
-	ID 			  string
-	Name 	      string
-	Type 	      AlbumType
-	Artist        int
-	ReleaseDate   time.Time
+	ID          string
+	Name        string
+	Type        AlbumType
+	Artist      int
+	ReleaseDate time.Time
 	Tracks      []int
 }
 
 type Playlist struct {
-	ID 			     string
-	Name             string
-	PlaylistMetaID   int
-	LastUpdated		 time.Time
+	ID             string
+	Name           string
+	PlaylistMetaID int
+	LastUpdated    time.Time
 	Tracks         []int
 }
 
 type Artist struct {
-	ID       string
-	Name     string
+	ID     string
+	Name   string
 	Albums []int
 }
 
 type Cache struct {
-	TrackDatas       []Track
-	TrackDatasMap    map[string]int
+	TrackDatas    []Track
+	TrackDatasMap map[string]int
 
-	AlbumDatas       []Album
-	AlbumDatasMap    map[string]int
-	
+	AlbumDatas    []Album
+	AlbumDatasMap map[string]int
+
 	PlaylistDatas    []Playlist
 	PlaylistDatasMap map[string]int
-	
-	ArtistDatas      []Artist
-	ArtistDatasMap   map[string]int
+
+	ArtistDatas    []Artist
+	ArtistDatasMap map[string]int
 }
 
 type TrackAdder struct {
@@ -146,10 +148,10 @@ type TrackAdder struct {
 // ---------------------------------------------------------
 // ---------------------------------------------------------
 func InitCache(c *Cache) {
-	c.TrackDatasMap    = make(map[string]int)
-	c.AlbumDatasMap    = make(map[string]int)
+	c.TrackDatasMap = make(map[string]int)
+	c.AlbumDatasMap = make(map[string]int)
 	c.PlaylistDatasMap = make(map[string]int)
-	c.ArtistDatasMap   = make(map[string]int)
+	c.ArtistDatasMap = make(map[string]int)
 }
 
 // ---------------------------------------------------------
@@ -160,13 +162,13 @@ func InitConfigData(c *ConfigData, userDataPath string) {
 	if configErr != nil {
 		log.Fatalf("Could not load user data path: %s\n", configErr)
 	}
-	
+
 	// unmarshall it, copy to object
 	configErr = json.Unmarshal(configBytes, c)
 	if configErr != nil {
 		log.Fatalf("%s\n", configErr)
 	}
-	
+
 	c.User.UserDataPath = userDataPath
 
 	lastRunArtists, lastRunPlaylists := parseLastRunFile(c.User.LastRunPath)
@@ -195,10 +197,10 @@ func InitConfigData(c *ConfigData, userDataPath string) {
 // ---------------------------------------------------------
 // ---------------------------------------------------------
 func CloseAndSave(c *ConfigData) {
-    f, err := os.Create(c.User.LastRunPath)
-    if err != nil {
-        log.Fatal(err)
-    }
+	f, err := os.Create(c.User.LastRunPath)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	defer f.Close()
 
@@ -224,15 +226,15 @@ func CloseAndSave(c *ConfigData) {
 // ---------------------------------------------------------
 func parseLastRunFile(path string) (string, string) {
 	data, err := ioutil.ReadFile(path)
-	
+
 	if err != nil {
 		log.Fatal(err)
 	}
-	
+
 	result := strings.Split(string(data), ",")
-	lastRunArtistsDateStr   := result[0]
+	lastRunArtistsDateStr := result[0]
 	lastRunPlaylistsDateStr := result[1]
-	
+
 	return lastRunArtistsDateStr, lastRunPlaylistsDateStr
 }
 
@@ -257,7 +259,7 @@ func CheckOption(config *ConfigData, argv []string, index int) {
 			}
 		}
 
-		dateTime, timeErr := time.Parse(SQUE_DATE_FORMAT, argv[index + 1])
+		dateTime, timeErr := time.Parse(SQUE_DATE_FORMAT, argv[index+1])
 		if timeErr != nil {
 			log.Fatalf("Could not parse debug date: %s\n", timeErr)
 		}
@@ -284,15 +286,18 @@ func initPlaylistDates(c *ConfigData) {
 
 		scanner := bufio.NewScanner(f)
 		scanner.Split(bufio.ScanLines)
-				
+
 		for scanner.Scan() {
 			idAndDate := strings.Split(scanner.Text(), ",")
 
 			playlistDataIndex, ok := cache.PlaylistDatasMap[idAndDate[0]]
 			if !ok {
-				log.Fatal("Playlist should exist in map")
+				// TODO: If there is a entry in the playlist meta map that doesn't exist in user prefs,
+				// the user may have deleted the playlist from user prefs and is not an error
+				msg := fmt.Sprintf("Playlist should exist in map: InitDates %s", idAndDate[0])
+				log.Fatal(msg)
 			}
-			
+
 			playlistData := cache.PlaylistDatas[playlistDataIndex]
 			date, dateErr := time.Parse(time.UnixDate, idAndDate[1])
 
@@ -317,18 +322,19 @@ func AlertStalePlaylistsAndSavePlaylistUpdates(c *ConfigData, cache *Cache) {
 
 	fmt.Println("Checking for stale playlists.")
 
-	for _, playlistMeta := range(config.Playlists) {
+	for _, playlistMeta := range config.Playlists {
 		// Check if this playlists PlaylistData exists
 		playlistDataIndex, ok := cache.PlaylistDatasMap[playlistMeta.ID]
 		if !ok {
-			log.Fatal("Playlist should exist in map")
+			msg := fmt.Sprintf("Playlist should exist in map: AlertStale Read %s %s", playlistMeta.Name, playlistMeta.ID)
+			log.Fatal(msg)
 		}
 
 		playlistData := &cache.PlaylistDatas[playlistDataIndex]
 
 		mostRecentSongTime := time.Date(2006, time.November, 1, 1, 0, 0, 0, time.UTC)
 
-		for _, trackDataIndex := range(playlistData.Tracks) {
+		for _, trackDataIndex := range playlistData.Tracks {
 			trackData := cache.TrackDatas[trackDataIndex]
 
 			if trackData.DateTime.After(mostRecentSongTime) {
@@ -352,17 +358,18 @@ func AlertStalePlaylistsAndSavePlaylistUpdates(c *ConfigData, cache *Cache) {
 		if err != nil {
 			log.Fatal(err)
 		}
-		
+
 		defer f.Close()
-		
-		for _, playlistMeta := range(config.Playlists) {
+
+		for _, playlistMeta := range config.Playlists {
 			playlistDataIndex, ok := cache.PlaylistDatasMap[playlistMeta.ID]
 			if !ok {
-				log.Fatal("Playlist should exist in map")
+				msg := fmt.Sprintf("Playlist should exist in map: AlertStale Write %s %s", playlistMeta.Name, playlistMeta.ID)
+				log.Fatal(msg)
 			}
-			
+
 			playlistData := cache.PlaylistDatas[playlistDataIndex]
-			
+
 			f.WriteString(fmt.Sprintf("%s,%s\n", playlistData.ID, playlistData.LastUpdated.Format(time.UnixDate)))
 		}
 	}
@@ -395,17 +402,17 @@ func ParseRawURI(uri *string, outUri *string) bool {
 func ScanArtistTracks(client *spotify.Client, cache *Cache, config *ConfigData, adder *TrackAdder) {
 	fmt.Println("Scanning Artists....")
 
-	albumType := []spotify.AlbumType{spotify.AlbumTypeAlbum, spotify.AlbumTypeSingle, spotify.AlbumTypeCompilation/*, spotify.AlbumTypeAppearsOn*/} // we dont care about 'AppearsOn'
-	
+	albumType := []spotify.AlbumType{spotify.AlbumTypeAlbum, spotify.AlbumTypeSingle, spotify.AlbumTypeCompilation /*, spotify.AlbumTypeAppearsOn*/} // we dont care about 'AppearsOn'
+
 	// Followed Artists
 	artists, artistErr := client.CurrentUsersFollowedArtists(context.Background(), spotify.Limit(SQUE_SPOTIFY_LIMIT_ARTISTS))
-	
+
 	continueScanning := (artistErr == nil)
-	
+
 	for len(artists.Artists) > 0 && continueScanning {
 		fmt.Println("Artist Limit:", artists.Limit)
 		fmt.Println("Number of artists:", len(artists.Artists))
-		
+
 		for _, artist := range artists.Artists {
 			artistDataIndex, ok := cache.ArtistDatasMap[artist.ID.String()]
 
@@ -413,13 +420,13 @@ func ScanArtistTracks(client *spotify.Client, cache *Cache, config *ConfigData, 
 			if !ok {
 				artistDataIndex = len(cache.ArtistDatas)
 				cache.ArtistDatasMap[artist.ID.String()] = artistDataIndex
-				cache.ArtistDatas = append(cache.ArtistDatas, 
-					Artist {
+				cache.ArtistDatas = append(cache.ArtistDatas,
+					Artist{
 						ID:   artist.ID.String(),
 						Name: artist.Name,
-				})
+					})
 			}
-			
+
 			var simpleTracksToAdd []int
 			artistData := cache.ArtistDatas[artistDataIndex]
 			fmt.Printf(">>>%s\n", artistData.Name)
@@ -430,11 +437,11 @@ func ScanArtistTracks(client *spotify.Client, cache *Cache, config *ConfigData, 
 			for len(artistAlbums.Albums) > 0 && albumsErr == nil {
 				for _, album := range artistAlbums.Albums {
 					/*
-					*  Some 'Compilation' spotify albums will be marked as compilation
-                    *  even though we really want them in listen later playlist. But 
-                    *  some compilations are actual compilations of many artists. So if
-                    *  this album has a bunch of artists, its most likely a compilation.
-                    *  This will probably skip cool older songs tho :'(
+											*  Some 'Compilation' spotify albums will be marked as compilation
+						                    *  even though we really want them in listen later playlist. But
+						                    *  some compilations are actual compilations of many artists. So if
+						                    *  this album has a bunch of artists, its most likely a compilation.
+						                    *  This will probably skip cool older songs tho :'(
 					*/
 					if album.AlbumGroup == "appears_on" {
 						continue
@@ -458,53 +465,53 @@ func ScanArtistTracks(client *spotify.Client, cache *Cache, config *ConfigData, 
 						} else if album.AlbumType == "compilation" {
 							albumType = AlbumType_Compilation
 						}
-						
+
 						albumDataIndex = len(cache.AlbumDatas)
 						cache.AlbumDatasMap[album.ID.String()] = albumDataIndex
-						cache.AlbumDatas = append(cache.AlbumDatas, 
-							Album {
+						cache.AlbumDatas = append(cache.AlbumDatas,
+							Album{
 								ID:          album.ID.String(),
 								Name:        album.Name,
 								Type:        albumType,
 								Artist:      artistDataIndex,
 								ReleaseDate: albumReleaseDateTime,
-						})
+							})
 						artistData.Albums = append(artistData.Albums, albumDataIndex)
 					}
 					albumData := cache.AlbumDatas[albumDataIndex]
 
 					// Get the album's tracks
 					albumTracks, tracksErr := client.GetAlbumTracks(context.Background(), album.ID, spotify.Limit(SQUE_SPOTIFY_LIMIT_TRACKS), spotify.Market(SQUE_SPOTIFY_MARKET))
-					
-					for len(albumTracks.Tracks) > 0 && tracksErr == nil {						
+
+					for len(albumTracks.Tracks) > 0 && tracksErr == nil {
 						for _, track := range albumTracks.Tracks {
 							// Skip tracks that are 'intro' tracks that dont really have much music content
-                    		// 80s = 80000ms
+							// 80s = 80000ms
 							if track.Duration <= 80000 {
 								continue
 							}
 
 							// if we already have the track then skip
 							trackDataIndex, ok := cache.TrackDatasMap[track.ID.String()]
-							if ok { 
+							if ok {
 								continue
 							}
 
 							// Create the track data
 							trackDataIndex = len(cache.TrackDatas)
 							cache.TrackDatasMap[track.ID.String()] = trackDataIndex
-							cache.TrackDatas = append(cache.TrackDatas, 
-								Track {
-									URI: string(track.URI),
-									Name: track.Name,
-									Artist: artistDataIndex,
-									Album: albumDataIndex,
+							cache.TrackDatas = append(cache.TrackDatas,
+								Track{
+									URI:      string(track.URI),
+									Name:     track.Name,
+									Artist:   artistDataIndex,
+									Album:    albumDataIndex,
 									Playlist: -1, // not from a playlist
-									Score: 0, // dont care about score of artists we follow, we want em all
+									Score:    0,  // dont care about score of artists we follow, we want em all
 									DateTime: albumReleaseDateTime,
-							})
+								})
 							albumData.Tracks = append(albumData.Tracks, trackDataIndex)
-							
+
 							// Add the simple track so we can query the full track later.
 							simpleTracksToAdd = append(simpleTracksToAdd, trackDataIndex)
 						}
@@ -514,7 +521,7 @@ func ScanArtistTracks(client *spotify.Client, cache *Cache, config *ConfigData, 
 				}
 				albumsErr = client.NextPage(context.Background(), artistAlbums)
 			}
-			
+
 			// Artists will release music under different licenses that may or may not
 			// allow returned songs from the spotify api to be playable by the current
 			// user. So we need to pull data of the full track to see if its playable
@@ -523,18 +530,18 @@ func ScanArtistTracks(client *spotify.Client, cache *Cache, config *ConfigData, 
 
 			for toAddIndex < totalTracks {
 				chunkLen := SQUE_SPOTIFY_LIMIT_ARTISTS
-				
+
 				if (toAddIndex + chunkLen) > totalTracks {
 					chunkLen = totalTracks - toAddIndex
 				}
 
 				trackChunk := make([]spotify.ID, chunkLen)
-				subtracks := simpleTracksToAdd[toAddIndex:toAddIndex+chunkLen]
-		
+				subtracks := simpleTracksToAdd[toAddIndex : toAddIndex+chunkLen]
+
 				// Create the spotify ids for all the possible tracks
-				for trackDataIndex, trackDataID := range(subtracks) {
+				for trackDataIndex, trackDataID := range subtracks {
 					trackData := cache.TrackDatas[trackDataID]
-		
+
 					if strings.Contains(trackData.URI, "spotify:track:") {
 						trackChunk[trackDataIndex] = spotify.ID(trackData.URI[len("spotify:track:"):len(trackData.URI)])
 					} else {
@@ -544,12 +551,12 @@ func ScanArtistTracks(client *spotify.Client, cache *Cache, config *ConfigData, 
 
 				// Get the full track
 				fullTracks, fullTrackErr := client.GetTracks(context.Background(), trackChunk, spotify.Market(SQUE_SPOTIFY_MARKET))
-				
+
 				if fullTrackErr != nil {
 					log.Fatal(fullTrackErr)
 				}
 
-				for _, track := range(fullTracks) {
+				for _, track := range fullTracks {
 					// Key to data map must exist if we got here
 					trackDataIndex, _ := cache.TrackDatasMap[track.ID.String()]
 
@@ -584,7 +591,7 @@ func ScanArtistTracks(client *spotify.Client, cache *Cache, config *ConfigData, 
 		// artist page complete
 		fmt.Println("Cursor After:", artists.Cursor.After)
 		if len(artists.Cursor.After) > 0 {
-			artists, artistErr = client.CurrentUsersFollowedArtists(context.Background(), spotify.Limit(SQUE_SPOTIFY_LIMIT_ARTISTS), spotify.After(artists.Cursor.After) )
+			artists, artistErr = client.CurrentUsersFollowedArtists(context.Background(), spotify.Limit(SQUE_SPOTIFY_LIMIT_ARTISTS), spotify.After(artists.Cursor.After))
 			continueScanning = artistErr == nil
 		} else {
 			continueScanning = false
@@ -596,8 +603,8 @@ func ScanArtistTracks(client *spotify.Client, cache *Cache, config *ConfigData, 
 // ---------------------------------------------------------
 func ScanPlaylistTracks(client *spotify.Client, cache *Cache, config *ConfigData, adder *TrackAdder) {
 	fmt.Println("Scanning Playlists....")
-		
-	for playlistMetaIndex, playlistMeta := range(config.Playlists) {
+
+	for playlistMetaIndex, playlistMeta := range config.Playlists {
 		var sortedPlaylistTracks []int
 
 		// Check if this playlists PlaylistData exists
@@ -605,22 +612,22 @@ func ScanPlaylistTracks(client *spotify.Client, cache *Cache, config *ConfigData
 		if !ok {
 			playlistDataIndex = len(cache.PlaylistDatas)
 			cache.PlaylistDatasMap[playlistMeta.ID] = playlistDataIndex
-			cache.PlaylistDatas = append(cache.PlaylistDatas, 
-				Playlist {
+			cache.PlaylistDatas = append(cache.PlaylistDatas,
+				Playlist{
 					ID:             playlistMeta.ID,
 					Name:           playlistMeta.Name,
 					PlaylistMetaID: playlistMetaIndex,
-			})
+				})
 		}
 		playlistData := &cache.PlaylistDatas[playlistDataIndex]
-		
+
 		fmt.Printf(">>>%s\n", playlistData.Name)
 
 		playlistTracks, playlistErr := client.GetPlaylistTracks(context.Background(), spotify.ID(playlistMeta.ID), spotify.Limit(SQUE_SPOTIFY_LIMIT_TRACKS), spotify.Market(SQUE_SPOTIFY_MARKET))
 		scanPlaylist := (playlistErr == nil || playlistErr == spotify.ErrNoMorePages)
 
 		for len(playlistTracks.Tracks) > 0 && scanPlaylist {
-			for _, playlistTrack := range(playlistTracks.Tracks) {
+			for _, playlistTrack := range playlistTracks.Tracks {
 
 				// Check the release date of the track
 				trackReleaseDateTime, dateTimeErr := time.Parse(spotify.TimestampLayout, playlistTrack.AddedAt)
@@ -628,7 +635,7 @@ func ScanPlaylistTracks(client *spotify.Client, cache *Cache, config *ConfigData
 					fmt.Printf("Cannot determine date for playlist track %s\n", playlistTrack.Track.Name)
 					continue
 				}
-				
+
 				// Skip track if the song was added previously when we ran this script
 				if trackReleaseDateTime.Before(config.Session.LastRunPlaylists) {
 					continue
@@ -640,16 +647,16 @@ func ScanPlaylistTracks(client *spotify.Client, cache *Cache, config *ConfigData
 				if !ok {
 					trackDataIndex = len(cache.TrackDatas)
 					cache.TrackDatasMap[playlistTrack.Track.ID.String()] = trackDataIndex
-					cache.TrackDatas = append(cache.TrackDatas, 
-						Track {
-							URI: string(playlistTrack.Track.URI),
-							Name: playlistTrack.Track.Name,
-							Artist: -1,
-							Album: -1,
+					cache.TrackDatas = append(cache.TrackDatas,
+						Track{
+							URI:      string(playlistTrack.Track.URI),
+							Name:     playlistTrack.Track.Name,
+							Artist:   -1,
+							Album:    -1,
 							Playlist: playlistDataIndex,
-							Score: playlistTrack.Track.Popularity,
+							Score:    playlistTrack.Track.Popularity,
 							DateTime: trackReleaseDateTime,
-					})
+						})
 				}
 
 				playlistData.Tracks = append(playlistData.Tracks, trackDataIndex)
@@ -698,7 +705,7 @@ func AddTracksToPlaylist(client *spotify.Client, cache *Cache, playlistId string
 			tracks[i], tracks[j] = tracks[j], tracks[i]
 		}
 	}
-	
+
 	totalTracks := len(tracks)
 
 	if totalTracks == 0 {
@@ -706,37 +713,37 @@ func AddTracksToPlaylist(client *spotify.Client, cache *Cache, playlistId string
 	}
 
 	spotPlaylistID := spotify.ID(playlistId)
-	
+
 	trackIndex := 0
-	
+
 	for trackIndex < totalTracks {
 		chunkLength := SQUE_SPOTIFY_LIMIT_PLAYLISTS
-		
+
 		if (trackIndex + chunkLength) > totalTracks {
 			chunkLength = totalTracks - trackIndex
 		}
-				
-		trackchunk := make([]spotify.ID, chunkLength)
-		subtracks := tracks[trackIndex:trackIndex+chunkLength]
 
-		for trackDataIndex, trackDataID := range(subtracks) {
+		trackchunk := make([]spotify.ID, chunkLength)
+		subtracks := tracks[trackIndex : trackIndex+chunkLength]
+
+		for trackDataIndex, trackDataID := range subtracks {
 			trackData := cache.TrackDatas[trackDataID]
 			var spotId string
-			if (ParseRawURI(&trackData.URI, &spotId)) {
+			if ParseRawURI(&trackData.URI, &spotId) {
 				trackchunk[trackDataIndex] = spotify.ID(spotId)
 			}
 
 			/*if strings.Contains(trackData.URI, "spotify:track:") {
 				spotId := spotify.ID(trackData.URI[len("spotify:track:"):len(trackData.URI)])
 				if len(spotId.String()) == 22 {
-					trackchunk[trackDataIndex] = spotId 
+					trackchunk[trackDataIndex] = spotId
 				} else {
 					fmt.Printf("TODO: BAD SUBSTR TRACK ID [%s]\n", spotId.String())
 				}
 			} else {
 				spotId := spotify.ID(trackData.URI)
 				if len(spotId.String()) == 22 {
-					trackchunk[trackDataIndex] = spotId 
+					trackchunk[trackDataIndex] = spotId
 				} else {
 					fmt.Printf("TODO: BAD TRACK ID [%s]\n", spotId.String())
 				}
@@ -746,12 +753,12 @@ func AddTracksToPlaylist(client *spotify.Client, cache *Cache, playlistId string
 		_, err := client.AddTracksToPlaylist(context.Background(), spotPlaylistID, trackchunk...)
 		if err != nil {
 			fmt.Println(err)
-			for tdi, tdid := range(trackchunk) {
+			for tdi, tdid := range trackchunk {
 				fmt.Printf("Index %d, ID %s\n", tdi, tdid.String())
 			}
 		}
 
-		trackIndex += chunkLength	
+		trackIndex += chunkLength
 	}
 }
 
