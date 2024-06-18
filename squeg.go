@@ -295,14 +295,16 @@ func initPlaylistDates(c *ConfigData) {
 				// TODO: If there is a entry in the playlist meta map that doesn't exist in user prefs,
 				// the user may have deleted the playlist from user prefs and is not an error
 				msg := fmt.Sprintf("Playlist should exist in map: InitDates %s", idAndDate[0])
-				log.Fatal(msg)
+				fmt.Print(msg)
+				continue
 			}
 
 			playlistData := cache.PlaylistDatas[playlistDataIndex]
 			date, dateErr := time.Parse(time.UnixDate, idAndDate[1])
 
 			if dateErr != nil {
-				log.Fatal(dateErr)
+				fmt.Print(dateErr.Error())
+				continue
 			}
 
 			playlistData.LastUpdated = date
