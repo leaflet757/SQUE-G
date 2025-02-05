@@ -101,11 +101,15 @@ func main() {
 		ScanPlaylistTracks(client, &cache, &config, &adder)
 	}
 
-	fmt.Println("----------------------------------------------")
-	fmt.Println("Culling duplicates...")
-	fmt.Println("----------------------------------------------")
+	// cull duplicates
+	config.Session.Flags |= SessionFlags_CullDuplicates
+	if (config.Session.Flags & SessionFlags_CullDuplicates) != 0 {
+		fmt.Println("----------------------------------------------")
+		fmt.Println("Culling duplicates...")
+		fmt.Println("----------------------------------------------")
 
-	CullDuplicateTracks(&cache)
+		CullDuplicateTracks(&cache)
+	}
 
 	fmt.Println("----------------------------------------------")
 	fmt.Printf("Adder will add %d listen later\n", len(adder.ListenLater))

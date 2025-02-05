@@ -53,6 +53,7 @@ const (
 	SessionFlags_ScanPlaylists SessionFlags = 1 << iota
 	SessionFlags_ScanArtists
 	SessionFlags_PrintFollowedPlaylists
+	SessionFlags_CullDuplicates
 )
 
 type SessionData struct {
@@ -89,6 +90,7 @@ type Track struct {
 	Album       int
 	Playlist    int
 	Score       int
+	Duration    int
 	DateTime    time.Time
 	IsDuplicate bool
 }
@@ -511,6 +513,7 @@ func ScanArtistTracks(client *spotify.Client, cache *Cache, config *ConfigData, 
 									Album:    albumDataIndex,
 									Playlist: -1, // not from a playlist
 									Score:    0,  // dont care about score of artists we follow, we want em all
+									Duration: track.Duration,
 									DateTime: albumReleaseDateTime,
 								})
 							albumData.Tracks = append(albumData.Tracks, trackDataIndex)
@@ -726,14 +729,34 @@ func AddTracksToPlaylist(client *spotify.Client, cache *Cache, playlistId string
 			chunkLength = totalTracks - trackIndex
 		}
 
-		trackchunk := make([]spotify.ID, chunkLength)
 		subtracks := tracks[trackIndex : trackIndex+chunkLength]
 
-		for trackDataIndex, trackDataID := range subtracks {
+		// count the number of duplicates
+		dupCount := 0
+		for _, trackDataID := range subtracks {
+			if cache.TrackDatas[trackDataID].IsDuplicate {
+				dupCount += 1
+			}
+		}
+		chunkLength = chunkLength - dupCount
+		if chunkLength <= 0 {
+			break
+		}
+
+		trackchunk := make([]spotify.ID, chunkLength)
+
+		chunkIndex := 0
+		for _, trackDataID := range subtracks {
 			trackData := cache.TrackDatas[trackDataID]
+
+			if trackData.IsDuplicate {
+				continue
+			}
+
 			var spotId string
 			if ParseRawURI(&trackData.URI, &spotId) {
-				trackchunk[trackDataIndex] = spotify.ID(spotId)
+				trackchunk[chunkIndex] = spotify.ID(spotId)
+				chunkIndex += 1
 			}
 
 			/*if strings.Contains(trackData.URI, "spotify:track:") {
@@ -790,6 +813,38 @@ func ShowFollowedPlaylists(client *spotify.Client, config *ConfigData) {
 
 // ---------------------------------------------------------
 // ---------------------------------------------------------
+func AreTracksSimilar(t1 *Track, t2 *Track) bool {
+	// First try checking the duration. If the durations are similar then the track
+	// might be a duplicate
+	if t1.Duration == t2.Duration && t1.Artist == t2.Artist {
+		// TODO: Compare artists. We should check the cases were two artists collab with each other
+		if t1.Name == t2.Name {
+			return true
+		}
+	}
+
+	return false
+}
+
+// ---------------------------------------------------------
+// ---------------------------------------------------------
 func CullDuplicateTracks(cache *Cache) {
-	fmt.Println("TODO CULL DUPS")
+	// Brute force it yo, how long is this going to take?
+	// TODO should print out which tracks are dups
+	for trackIndex1, trackData1 := range cache.TrackDatas {
+		for trackIndex2, trackData2 := range cache.TrackDatas {
+			if trackIndex1 == trackIndex2 {
+				continue
+			}
+			if AreTracksSimilar(&trackData1, &trackData2) {
+				if trackData1.Score >= trackData2.Score {
+					trackData2.IsDuplicate = true
+					fmt.Printf("%s by %s with score %d has dupe with score %d", trackData1.Name, cache.ArtistDatas[trackData1.Artist].Name, trackData1.Score, trackData2.Score)
+				} else {
+					trackData1.IsDuplicate = true
+					fmt.Printf("%s by %s with score %d has dupe with score %d", trackData2.Name, cache.ArtistDatas[trackData2.Artist].Name, trackData2.Score, trackData1.Score)
+				}
+			}
+		}
+	}
 }
