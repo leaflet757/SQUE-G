@@ -83,13 +83,14 @@ type ConfigData struct {
 // ---------------------------------------------------------
 
 type Track struct {
-	URI      string
-	Name     string
-	Artist   int
-	Album    int
-	Playlist int
-	Score    int
-	DateTime time.Time
+	URI         string
+	Name        string
+	Artist      int
+	Album       int
+	Playlist    int
+	Score       int
+	DateTime    time.Time
+	IsDuplicate bool
 }
 
 type AlbumType int
@@ -411,7 +412,7 @@ func ScanArtistTracks(client *spotify.Client, cache *Cache, config *ConfigData, 
 
 	continueScanning := (artistErr == nil)
 
-	for len(artists.Artists) > 0 && continueScanning {
+	for continueScanning && len(artists.Artists) > 0 {
 		fmt.Println("Artist Limit:", artists.Limit)
 		fmt.Println("Number of artists:", len(artists.Artists))
 
@@ -436,15 +437,15 @@ func ScanArtistTracks(client *spotify.Client, cache *Cache, config *ConfigData, 
 			// Get the artist's albums
 			artistAlbums, albumsErr := client.GetArtistAlbums(context.Background(), spotify.ID(artistData.ID), albumType, spotify.Limit(SQUE_SPOTIFY_LIMIT_ALBUMS))
 
-			for len(artistAlbums.Albums) > 0 && albumsErr == nil {
+			for albumsErr == nil && len(artistAlbums.Albums) > 0 {
 				for _, album := range artistAlbums.Albums {
 					/*
-											*  Some 'Compilation' spotify albums will be marked as compilation
-						                    *  even though we really want them in listen later playlist. But
-						                    *  some compilations are actual compilations of many artists. So if
-						                    *  this album has a bunch of artists, its most likely a compilation.
-						                    *  This will probably skip cool older songs tho :'(
-					*/
+					 *  Some 'Compilation' spotify albums will be marked as compilation
+					 *  even though we really want them in listen later playlist. But
+					 *  some compilations are actual compilations of many artists. So if
+					 *  this album has a bunch of artists, its most likely a compilation.
+					 *  This will probably skip cool older songs tho :'(
+					 */
 					if album.AlbumGroup == "appears_on" {
 						continue
 					}
@@ -485,7 +486,7 @@ func ScanArtistTracks(client *spotify.Client, cache *Cache, config *ConfigData, 
 					// Get the album's tracks
 					albumTracks, tracksErr := client.GetAlbumTracks(context.Background(), album.ID, spotify.Limit(SQUE_SPOTIFY_LIMIT_TRACKS), spotify.Market(SQUE_SPOTIFY_MARKET))
 
-					for len(albumTracks.Tracks) > 0 && tracksErr == nil {
+					for tracksErr == nil && len(albumTracks.Tracks) > 0 {
 						for _, track := range albumTracks.Tracks {
 							// Skip tracks that are 'intro' tracks that dont really have much music content
 							// 80s = 80000ms
@@ -628,7 +629,7 @@ func ScanPlaylistTracks(client *spotify.Client, cache *Cache, config *ConfigData
 		playlistTracks, playlistErr := client.GetPlaylistTracks(context.Background(), spotify.ID(playlistMeta.ID), spotify.Limit(SQUE_SPOTIFY_LIMIT_TRACKS), spotify.Market(SQUE_SPOTIFY_MARKET))
 		scanPlaylist := (playlistErr == nil || playlistErr == spotify.ErrNoMorePages)
 
-		for len(playlistTracks.Tracks) > 0 && scanPlaylist {
+		for scanPlaylist && len(playlistTracks.Tracks) > 0 {
 			for _, playlistTrack := range playlistTracks.Tracks {
 
 				// Check the release date of the track
@@ -785,4 +786,10 @@ func ShowFollowedPlaylists(client *spotify.Client, config *ConfigData) {
 		playlistErr := client.NextPage(context.Background(), playlistPage)
 		scanPlaylist = playlistErr == nil
 	}
+}
+
+// ---------------------------------------------------------
+// ---------------------------------------------------------
+func CullDuplicateTracks(cache *Cache) {
+	fmt.Println("TODO CULL DUPS")
 }

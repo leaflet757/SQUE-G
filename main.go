@@ -7,17 +7,17 @@ import (
 	"net/http"
 	"os"
 	"time"
-	
+
 	"github.com/zmb3/spotify/v2"
-	"github.com/zmb3/spotify/v2/auth"
+	spotifyauth "github.com/zmb3/spotify/v2/auth"
 )
 
 var (
 	auth   *spotifyauth.Authenticator
-	config  ConfigData
-	cache   Cache
-	adder   TrackAdder
-	logger  Logger
+	config ConfigData
+	cache  Cache
+	adder  TrackAdder
+	logger Logger
 
 	ch       = make(chan *spotify.Client)
 	appState = "abc123" // TODO: What should this be?
@@ -43,10 +43,10 @@ func main() {
 	}
 
 	// ClientID, SecretID
-	auth = spotifyauth.New(spotifyauth.WithClientID(config.User.ClientID), 
-						   spotifyauth.WithClientSecret(config.User.ClientSecret),
-						   spotifyauth.WithRedirectURL(config.User.RedirectURI), 
-						   spotifyauth.WithScopes(spotifyauth.ScopePlaylistModifyPublic, spotifyauth.ScopePlaylistModifyPrivate, spotifyauth.ScopePlaylistReadPrivate, spotifyauth.ScopeUserFollowRead))
+	auth = spotifyauth.New(spotifyauth.WithClientID(config.User.ClientID),
+		spotifyauth.WithClientSecret(config.User.ClientSecret),
+		spotifyauth.WithRedirectURL(config.User.RedirectURI),
+		spotifyauth.WithScopes(spotifyauth.ScopePlaylistModifyPublic, spotifyauth.ScopePlaylistModifyPrivate, spotifyauth.ScopePlaylistReadPrivate, spotifyauth.ScopeUserFollowRead))
 
 	// first start an HTTP server
 	http.HandleFunc("/callback", completeAuth)
@@ -65,18 +65,18 @@ func main() {
 
 	// wait for auth to complete
 	client := <-ch
-	
+
 	// use the client to make calls that require authorization
 	spotifyUser, userErr := client.CurrentUser(context.Background())
 	if userErr != nil {
 		log.Fatal(userErr)
 	}
-	
+
 	// assign user ID
 	config.User.UserID = spotifyUser.ID
-	
+
 	fmt.Println("You are logged in as:", spotifyUser.ID)
-	
+
 	// Print Followed Playlists
 	if (config.Session.Flags & SessionFlags_PrintFollowedPlaylists) != 0 {
 		fmt.Println("----------------------------------------------")
@@ -85,7 +85,7 @@ func main() {
 		ShowFollowedPlaylists(client, &config)
 		return
 	}
-	
+
 	InitCache(&cache)
 
 	// Start Clock
@@ -100,6 +100,12 @@ func main() {
 	if (config.Session.Flags & SessionFlags_ScanPlaylists) != 0 {
 		ScanPlaylistTracks(client, &cache, &config, &adder)
 	}
+
+	fmt.Println("----------------------------------------------")
+	fmt.Println("Culling duplicates...")
+	fmt.Println("----------------------------------------------")
+
+	CullDuplicateTracks(&cache)
 
 	fmt.Println("----------------------------------------------")
 	fmt.Printf("Adder will add %d listen later\n", len(adder.ListenLater))
@@ -154,7 +160,7 @@ func completeAuth(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// use the token to get an authenticated client
-	client := spotify.New(auth.Client(r.Context(), tok))
+	client := spotify.New(auth.Client(r.Context(), tok), spotify.WithRetry(true))
 	fmt.Fprintf(w, "Login Completed!")
 	ch <- client
 }
