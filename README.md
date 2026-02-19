@@ -46,6 +46,7 @@ The \<user.data\> file must be in JSON format and be of the form:
     ]
 }
 ```
+(Yes, I know this is very secure.)
 
 ## Last Run File
 The \<lastrun\> file must only contain numbers separated by dashes for each last run category (artists,playlists):
